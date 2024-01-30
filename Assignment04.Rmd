@@ -1,0 +1,185 @@
+---
+title: "Assignment 4"
+author: "Cameron Atkins"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 01
+1a. First start by calculating the covariance matrix (denoted as Σ). Set up the
+equation, but use R to calculate the matrix.
+```{r}
+df <- data.frame(x1 = c(2, 3, 5, 6, 10),
+                 x2 = c(3, 4, 6, 7, 11))
+cov_matrix <- matrix((cov(df)), nrow = 2, byrow=TRUE)
+print(cov_matrix)
+```
+1b. Find the eigenvalues by calculating det(Σ − λI) and solving for λ
+```{r}
+eigen_result <- eigen(cov_matrix)
+eigenvalues <- eigen_result$values
+eigenvectors <- eigen_result$vectors
+
+# Print eigenvalues
+print(eigenvalues)
+
+
+```
+1c. Compute the eigenvectors corresponding to each eigenvalue using the properties
+of eigenvalues and eigenvectors: Σei = λei Where ei is the ith eigenvector. 
+Then convert ei to a unit eigenvector using the formula: ei/||ei||
+```{r}
+#Eigenvectors
+print(eigenvectors)
+
+# Normalize and print each eigenvector 
+normalized_eigenvectors <- eigenvectors / sqrt(rowSums(eigenvectors^2))
+print(normalized_eigenvectors)
+```
+
+```{r}
+# Finally compute the percentage of contribution from each eigenvector by summing
+# the eigenvalues together and dividing each individual eigenvalue by the total. Draw a
+# Scree plot to show the differences in contribution from the principal components
+
+percentage_contribution <- eigenvalues / sum(eigenvalues) * 100
+
+# Create a Scree plot
+plot(percentage_contribution, type = "b", main = "Scree Plot",
+     xlab = "Principal Component", ylab = "Percentage Contribution")
+
+# Add cumulative percentage contribution
+cum_percentage <- cumsum(percentage_contribution)
+lines(cum_percentage, col = "red", type = "b")
+
+# Add labels
+legend("topright", legend = c("Percentage", "Cumulative Percentage"),
+       col = c("black", "red"), lty = 1:1, cex = 0.8)
+```
+
+# Problem 02
+With R, create a PCA plot with PC1 on the X-axis and PC2 on the Y-axis. Construct
+a Scree plot.
+```{r}
+library(dplyr)
+iris_test = iris[order(iris$Species),]
+rownames(iris_test) = paste(substr(iris_test[,5],1,2),
+sample(1:2000, 150, replace = FALSE),sep = "")
+set.seed(641)
+iris_test = sample_n(iris_test, 20)
+
+iris_test
+
+iris_matrix <- as.matrix(iris_test[1:20, 1:5])
+iris_matrix
+
+extract_and_convert_matrix <- function(mat) {
+  middle_four <- mat[, 1:4]
+  middle_four <- apply(middle_four, 2, function(x) as.numeric(as.character(x)))
+  return(middle_four)
+}
+
+# Pass the matrix to the function
+result_matrix <- extract_and_convert_matrix(iris_matrix)
+print(result_matrix)
+
+pca <- prcomp(t(result_matrix), scale=TRUE) 
+pca
+
+plot(pca$x[,1], pca$x[,2], xlab = "PC1", ylab = "PC2")
+
+# make a scree plot
+pca.var <- pca$sdev^2
+pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
+
+barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
+
+library(ggplot2)
+library(ggthemes)
+
+pca.data <- data.frame(Sample=rownames(pca$x),
+                       X=pca$x[,1],
+                       Y=pca$x[,2])
+pca.data
+
+ggplot(data=pca.data, aes(x=X, y=Y, label=Sample)) +
+  geom_text() +
+  xlab(paste("PC1 - ", pca.var.per[1], "%", sep="")) +
+  ylab(paste("PC2 - ", pca.var.per[2], "%", sep="")) +
+  ggtitle("PCA Graph")
+```
+
+# Problem 3
+Using the dataset attached to the assignment, honey.csv, first split the data as
+60% training data and 40% validation data, using the TVHSplit function created in
+the notes (keep iseed as the default value so that the sampling is consistent). Train 3
+models using average_price as your y variable:
+1. A decision tree using the rpart package
+2. A model based recursive partitioning tree model from the partykit package
+3. A boosted tree from the gbm package
+Compare the validation R2 for each model
+```{r}
+
+library(rpart)
+library(partykit)
+library(gbm)
+data_honey <- read.csv('Honey.csv')
+head(data_honey)
+str(data_honey)
+summary(data_honey)
+
+TVHsplit = function(df, split = c(0.5, 0.25, 0.25), labels=c('T', 'V', 'H'), iseed=397){
+  set.seed(iseed)
+  flags = sample(labels, size = nrow(df),
+                 prob = split, replace = T)
+  return(flags)
+}
+```
+
+```{r}
+split_flags <- TVHsplit(data_honey, split = c(0.6, 0.4), labels=c('T', 'V'))
+
+train_data = data_honey[which(split_flags == 'T'),]
+valid_data = data_honey[which(split_flags == 'V'),]
+
+# Decision tree using rpart
+tree_model_rpart <- rpart(average_price ~ ., data = train_data)
+
+# Model based recursive partitioning tree model from the partykit package
+tree_model_partykit <- ctree(average_price ~ ., data = train_data)
+
+# A boosted tree from the gbm package
+gbm_model <- gbm(average_price ~ ., data = train_data, distribution = "gaussian", n.trees = 100, interaction.depth = 3)
+
+# Comparing models by R-squared
+ValidationRsq = function (validObs, validHat){
+  resids = validHat - validObs
+  yBar = mean(validObs)
+  offset = validObs - yBar
+  num = sum(resids^2)
+  denom = sum(offset^2)
+  Rsq = 1 - num/denom
+  return(Rsq)
+}
+
+
+# Compare the validation R2 for each model
+rpartHoneyHatV = predict(tree_model_rpart, newdata = valid_data)
+ValidationRsq(valid_data$average_price, rpartHoneyHatV)
+
+treepartyHatV = predict(tree_model_rpart, newdata = valid_data)
+ValidationRsq(valid_data$average_price, treepartyHatV)
+
+gmbmodelHatV = predict(gbm_model, newdata = valid_data)
+ValidationRsq(valid_data$average_price, gmbmodelHatV)
+
+```
+
+
+
